@@ -5,6 +5,9 @@ from datetime import datetime, timedelta
 import asyncio
 import certifi
 from datetime import datetime, timedelta
+import aiofiles
+import os
+from fastapi.responses import FileResponse
 
 uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?appName=Cluster0"
 
@@ -12,6 +15,9 @@ uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?appN
 ca = certifi.where()
 client = AsyncIOMotorClient(uri, tlsCAFile=ca)
 app = FastAPI()
+
+UPLOAD_DIR = "stored_files"
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # 1. Setup Async MongoDB Connection
 # Use the same URI, just with the Async client
@@ -33,6 +39,10 @@ async def startup_db_client():
         await shares_collection.create_index("expireAt", expireAfterSeconds=0)
     except Exception as e:
         print(f"❌ Connection failed: {e}")
+
+@app.get("/")
+async def root():
+    return {"message": "Hello World"}
 
 @app.post("/upload")
 async def process_anonymous_upload(
@@ -65,8 +75,49 @@ async def process_anonymous_upload(
     # 5. Insert into MongoDB
     await shares_collection.insert_one(new_share)
 
+    # Format: slug_original_name
+    file_path = os.path.join(UPLOAD_DIR, f"{custom_slug}_{file.filename}")
+
+    # Save the file to your hard drive asynchronously
+    async with aiofiles.open(file_path, 'wb') as out_file:
+        content = await file.read() # Read the file bytes
+        await out_file.write(content) # Write to disk
+
+    # Update your MongoDB document to include the file_path
+    # This helps you find the file later when someone visits the URL
+    await shares_collection.update_one(
+        {"slug": custom_slug},
+        {"$set": {"local_path": file_path}}
+    )
+
     return {
-        "status": "success",
+        "status": "File Saved Locally & Logged in MongoDB",
         "share_url": f"nologin.in/{custom_slug}",
         "will_expire_at": expire_date.strftime("%Y-%m-%d %H:%M:%S UTC")
     }
+
+@app.get("/{slug}")
+async def download_file(slug: str):
+    # 1. Search MongoDB for the custom URL (slug)
+    share_data = await shares_collection.find_one({"slug": slug})
+
+    # 2. If it's not found (or already deleted by the TTL timer)
+    if not share_data:
+        raise HTTPException(
+            status_code=404, 
+            detail="Link has expired or does not exist."
+        )
+
+    # 3. Get the path to the physical file we saved earlier
+    file_path = share_data.get("local_path")
+
+    # 4. Safety check: Does the file actually exist on the laptop?
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File no longer on server.")
+
+    # 5. Serve the file to the browser
+    return FileResponse(
+        path=file_path, 
+        filename=share_data["filename"],
+        media_type='application/octet-stream'
+    )
