@@ -38,7 +38,7 @@ const Index = () => {
   const [showTimeDropdown, setShowTimeDropdown] = useState(false);
   const [showPasswordInput, setShowPasswordInput] = useState(false);
   const [password, setPassword] = useState("");
-  
+
   const [isUploading, setIsUploading] = useState(false);
 
 
@@ -48,19 +48,23 @@ const Index = () => {
 
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
-    if (!file || !domainName) return;
+    if (!file) return;
   
     setIsUploading(true);
     const formData = new FormData();
     formData.append('file', file);
     formData.append('custom_slug', domainName);
-    formData.append('hours', "1"); // or hook this to a state if they have a timer dropdown
+    formData.append('hours', selectedTime.split(' ')[0]); 
   
     try {
+      // 1. Send data to SSD & MongoDB
       const response = await axios.post('http://127.0.0.1:8000/upload', formData);
-      alert("Uploaded! Link: " + response.data.share_url);
+      toast.success("Dropp'd successfully!");
+      
+      // 2. Redirect to the download/editor page now that file exists
+      navigate(`/${domainName}`); 
     } catch (error) {
-      alert("Upload failed");
+      toast.error("Upload failed. Check if Backend is running.");
     } finally {
       setIsUploading(false);
     }
@@ -108,7 +112,8 @@ const Index = () => {
 
         {/* Controls row */}
         <div className="flex items-center gap-4 mb-3">
-          
+          {/* --- HIDDEN FILE INPUT --- */}
+
           <button className="text-primary hover:text-primary/80 transition-colors">
             <Info size={18} />
           </button>
@@ -131,9 +136,8 @@ const Index = () => {
                       setSelectedTime(t);
                       setShowTimeDropdown(false);
                     }}
-                    className={`block w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors ${
-                      selectedTime === t ? "text-primary" : "text-foreground"
-                    }`}
+                    className={`block w-full text-left px-4 py-2 text-sm hover:bg-secondary transition-colors ${selectedTime === t ? "text-primary" : "text-foreground"
+                      }`}
                   >
                     {t}
                   </button>
@@ -174,18 +178,26 @@ const Index = () => {
           Default Time: {selectedTime}
         </p>
 
+        <input
+          type="file"
+          id="file-upload-hidden"
+          className="hidden"
+          onChange={handleFileChange}
+        />
+
         {/* Submit button */}
         <button
           onClick={() => {
-            if (domainName.trim()) {
-              navigate(`/${domainName.trim()}`);
-            } else {
+            if (!domainName.trim()) {
               toast.error("Please enter a domain name first");
+              return;
             }
+            // This triggers the file selection window
+            document.getElementById('file-upload-hidden')?.click();
           }}
           className="px-16 py-3 rounded-full bg-primary text-primary-foreground font-bold text-lg flex items-center gap-3 hover:bg-primary/90 transition-colors shadow-lg shadow-primary/25"
         >
-          SUBMIT
+          {isUploading ? "UPLOADING..." : "SUBMIT"}
           <ArrowRight size={20} />
         </button>
       </main>
