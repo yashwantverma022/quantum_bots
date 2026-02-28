@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 import aiofiles
 import os
 from fastapi.responses import FileResponse
+from fastapi.middleware.cors import CORSMiddleware
+
 
 uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?appName=Cluster0"
 
@@ -15,6 +17,15 @@ uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?appN
 ca = certifi.where()
 client = AsyncIOMotorClient(uri, tlsCAFile=ca)
 app = FastAPI()
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # For MVP, allow everything. For production, use your frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 UPLOAD_DIR = "stored_files"
 os.makedirs(UPLOAD_DIR, exist_ok=True)
