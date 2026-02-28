@@ -11,11 +11,18 @@ from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 
 
-uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?appName=Cluster0"
+uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?retryWrites=true&w=majority"
+
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 # Update this line in your code
 ca = certifi.where()
 client = AsyncIOMotorClient(uri, tlsCAFile=ca)
+db = client["nologin_db"]
+
 app = FastAPI()
 
 
@@ -51,9 +58,7 @@ async def startup_db_client():
     except Exception as e:
         print(f"❌ Connection failed: {e}")
 
-@app.get("/")
-async def root():
-    return {"message": "Hello World"}
+
 
 @app.post("/upload")
 async def process_anonymous_upload(
@@ -107,28 +112,20 @@ async def process_anonymous_upload(
         "will_expire_at": expire_date.strftime("%Y-%m-%d %H:%M:%S UTC")
     }
 
-@app.get("/{slug}")
+@app.get("/download/{slug}")
 async def download_file(slug: str):
-    # 1. Search MongoDB for the custom URL (slug)
-    share_data = await shares_collection.find_one({"slug": slug})
+    file_record = await db["shares"].find_one({"slug": slug})
 
-    # 2. If it's not found (or already deleted by the TTL timer)
-    if not share_data:
-        raise HTTPException(
-            status_code=404, 
-            detail="Link has expired or does not exist."
-        )
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
 
-    # 3. Get the path to the physical file we saved earlier
-    file_path = share_data.get("local_path")
+    file_path = file_record["local_path"]
 
-    # 4. Safety check: Does the file actually exist on the laptop?
     if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File no longer on server.")
+        raise HTTPException(status_code=404, detail="File missing on server")
 
-    # 5. Serve the file to the browser
     return FileResponse(
-        path=file_path, 
-        filename=share_data["filename"],
-        media_type='application/octet-stream'
+        path=file_path,
+        media_type="application/octet-stream",
+        filename=file_record["filename"],
     )
