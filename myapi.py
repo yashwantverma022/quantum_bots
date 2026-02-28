@@ -13,6 +13,11 @@ from fastapi.middleware.cors import CORSMiddleware
 
 uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?retryWrites=true&w=majority"
 
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
+
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
 # Update this line in your code
 ca = certifi.where()
 client = AsyncIOMotorClient(uri, tlsCAFile=ca)
@@ -107,43 +112,20 @@ async def process_anonymous_upload(
         "will_expire_at": expire_date.strftime("%Y-%m-%d %H:%M:%S UTC")
     }
 
-@app.get("/download/{slug_from_url}")
-async def download_file(slug_from_url: str):
-    # 1. Force a fresh connection check
-    search_slug = slug_from_url.strip()
-    print(f"--- ATTEMPTING RETRIEVAL FOR: '{search_slug}' ---")
+@app.get("/download/{slug}")
+async def download_file(slug: str):
+    file_record = await db["shares"].find_one({"slug": slug})
 
-    try:
-        # Use the exact URI and DB name from your screenshot
-        db = client["nologin_db"]
-        
-        # 2. Search 'shares' collection
-        # We will try a simple match first to eliminate regex complexity
-        file_record = await db["shares"].find_one({"slug": search_slug})
-        
-        # 3. Fallback: If exact match fails, try with the trailing space
-        if not file_record:
-            file_record = await db["shares"].find_one({"slug": search_slug + " "})
+    if not file_record:
+        raise HTTPException(status_code=404, detail="File not found")
 
-        if not file_record:
-            print(f"DATABASE ERROR: No document with slug '{search_slug}' in 'shares' collection.")
-            raise HTTPException(status_code=404, detail="Slug not found")
+    file_path = file_record["local_path"]
 
-        # 4. Map the path (Field is 'local_path' in your screenshot)
-        file_path = file_record.get("local_path")
-        
-        if not file_path or not os.path.exists(file_path):
-            print(f"STORAGE ERROR: Record exists, but file missing at {file_path}")
-            raise HTTPException(status_code=404, detail="File not found on disk")
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File missing on server")
 
-        # 5. Success
-        print(f"SUCCESS: Streaming {file_path}")
-        return FileResponse(
-            path=file_path,
-            filename=file_record.get("filename", "download"),
-            media_type='application/octet-stream'
-        )
-        
-    except Exception as e:
-        print(f"CRITICAL ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+    return FileResponse(
+        path=file_path,
+        media_type="application/octet-stream",
+        filename=file_record["filename"],
+    )
