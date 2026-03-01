@@ -20,7 +20,7 @@ from fastapi.responses import RedirectResponse
 
 uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?retryWrites=true&w=majority"
 
-ai_client = OpenAI(api_key=os.getenv("openai_api_key"))
+ai_client = OpenAI(api_key=os.getenv("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"))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
