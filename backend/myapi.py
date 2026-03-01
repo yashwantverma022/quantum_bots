@@ -94,10 +94,9 @@ async def process_anonymous_upload(
     # Format: slug_original_name
     file_path = os.path.join(UPLOAD_DIR, f"{custom_slug}_{file.filename}")
 
-    # Save the file to your hard drive asynchronously
+    # Save the file to your hard drive asynchronously (use file_bytes already read above)
     async with aiofiles.open(file_path, 'wb') as out_file:
-        content = await file.read() # Read the file bytes
-        await out_file.write(content) # Write to disk
+        await out_file.write(file_bytes)
 
     # Update your MongoDB document to include the file_path
     # This helps you find the file later when someone visits the URL
