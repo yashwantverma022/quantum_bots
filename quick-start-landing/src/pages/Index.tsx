@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { Copy, ArrowRight, Info, Clock, Lock } from "lucide-react";
+import { Copy, ArrowRight, Info, Clock, Lock, Upload } from "lucide-react";
 import { toast } from "sonner";
 import axios from "axios";
 
@@ -40,7 +40,7 @@ const Index = () => {
   const [password, setPassword] = useState("");
 
   const [isUploading, setIsUploading] = useState(false);
-
+  const [fileUploaded, setFileUploaded] = useState(false);
 
   const handleCopy = () => {
     navigator.clipboard.writeText(`dropp.in/${domainName}`);
@@ -49,25 +49,42 @@ const Index = () => {
   const handleFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-  
+
+    if (!domainName.trim()) {
+      toast.error("Please enter a domain name first");
+      event.target.value = "";
+      return;
+    }
+
     setIsUploading(true);
+    setFileUploaded(false);
     const formData = new FormData();
     formData.append('file', file);
     formData.append('custom_slug', domainName);
-    formData.append('hours', selectedTime.split(' ')[0]); 
-  
+    formData.append('hours', selectedTime.split(' ')[0]);
+
     try {
-      // 1. Send data to SSD & MongoDB
-      const response = await axios.post('http://127.0.0.1:8000/upload', formData);
+      await axios.post('http://127.0.0.1:8000/upload', formData);
       toast.success("Dropp'd successfully!");
-      
-      // 2. Redirect to the download/editor page now that file exists
-      navigate(`/${domainName}`); 
+      setFileUploaded(true);
     } catch (error) {
       toast.error("Upload failed. Check if Backend is running.");
     } finally {
       setIsUploading(false);
+      event.target.value = "";
     }
+  };
+
+  const handleSubmit = () => {
+    if (!domainName.trim()) {
+      toast.error("Please enter a domain name first");
+      return;
+    }
+    if (!fileUploaded) {
+      toast.error("Please upload a file first");
+      return;
+    }
+    navigate(`/${domainName}`);
   };
 
   return (
@@ -99,7 +116,10 @@ const Index = () => {
             type="text"
             placeholder="Enter domain name"
             value={domainName}
-            onChange={(e) => setDomainName(e.target.value)}
+            onChange={(e) => {
+              setDomainName(e.target.value);
+              setFileUploaded(false);
+            }}
             className="flex-1 bg-card px-4 py-3 text-foreground text-sm outline-none placeholder:text-muted-foreground"
           />
           <button
@@ -185,21 +205,31 @@ const Index = () => {
           onChange={handleFileChange}
         />
 
-        {/* Submit button */}
-        <button
-          onClick={() => {
-            if (!domainName.trim()) {
-              toast.error("Please enter a domain name first");
-              return;
-            }
-            // This triggers the file selection window
-            document.getElementById('file-upload-hidden')?.click();
-          }}
-          className="px-16 py-3 rounded-full bg-primary text-primary-foreground font-bold text-lg flex items-center gap-3 hover:bg-primary/90 transition-colors shadow-lg shadow-primary/25"
-        >
-          {isUploading ? "UPLOADING..." : "SUBMIT"}
-          <ArrowRight size={20} />
-        </button>
+        {/* Upload & Submit buttons */}
+        <div className="flex items-center gap-4">
+          <button
+            onClick={() => {
+              if (!domainName.trim()) {
+                toast.error("Please enter a domain name first");
+                return;
+              }
+              document.getElementById('file-upload-hidden')?.click();
+            }}
+            disabled={isUploading}
+            className="px-10 py-3 rounded-full bg-secondary text-foreground font-bold text-lg flex items-center gap-3 hover:bg-secondary/80 transition-colors border border-border disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            <Upload size={20} />
+            {isUploading ? "UPLOADING..." : "UPLOAD"}
+          </button>
+          <button
+            onClick={handleSubmit}
+            disabled={!fileUploaded}
+            className="px-10 py-3 rounded-full bg-primary text-primary-foreground font-bold text-lg flex items-center gap-3 hover:bg-primary/90 transition-colors shadow-lg shadow-primary/25 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            SUBMIT
+            <ArrowRight size={20} />
+          </button>
+        </div>
       </main>
     </div>
   );
