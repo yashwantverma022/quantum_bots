@@ -16,6 +16,18 @@ import cloudinary
 import cloudinary.uploader
 from cloudinary.utils import cloudinary_url
 from fastapi.responses import RedirectResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:5173",          # Local testing
+        "https://quantum-bots-quickstart.onrender.com" # YOUR LIVE FRONTEND URL
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 
 uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?retryWrites=true&w=majority"
