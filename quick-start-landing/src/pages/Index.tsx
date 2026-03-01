@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { Copy, ArrowRight, Info, Clock, Lock, Upload } from "lucide-react";
 import { toast } from "sonner";
 import axios from "axios";
+import { getApiBaseUrl } from "@/lib/api";
 
 const Navbar = () => (
   <nav className="flex items-center justify-between px-6 py-4">
@@ -63,12 +64,19 @@ const Index = () => {
     formData.append('custom_slug', domainName);
     formData.append('hours', selectedTime.split(' ')[0]);
 
+    const apiUrl = `${getApiBaseUrl()}/upload`;
     try {
-      await axios.post('http://127.0.0.1:8000/upload', formData);
+      await axios.post(apiUrl, formData);
       toast.success("Dropp'd successfully!");
       setFileUploaded(true);
-    } catch (error) {
-      toast.error("Upload failed. Check if Backend is running.");
+    } catch (err) {
+      const msg = axios.isAxiosError(err)
+        ? err.code === "ERR_NETWORK"
+          ? `Cannot reach backend at ${apiUrl}. Is it running? (Use --host 0.0.0.0 for network access)`
+          : err.response?.data?.detail || err.message
+        : "Upload failed";
+      toast.error(msg);
+      console.error("Upload error:", err);
     } finally {
       setIsUploading(false);
       event.target.value = "";

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import APIRouter, FastAPI, UploadFile, File, Form, HTTPException
 from typing import Annotated
 from motor.motor_asyncio import AsyncIOMotorClient
 from datetime import datetime, timedelta
@@ -9,14 +9,30 @@ import aiofiles
 import os
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
+import base64
+from openai import OpenAI
+import shutil
+import cloudinary
+import cloudinary.uploader
+from cloudinary.utils import cloudinary_url
+from fastapi.responses import RedirectResponse
 
 
 uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?retryWrites=true&w=majority"
+
+ai_client = OpenAI(api_key="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")
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+cloudinary.config( 
+  cloud_name = "dstsz4hdr", 
+  api_key = "736425739498859", 
+  api_secret = "9FbYlhcU4nKHGlKFeumCu8j-VpE",
+  secure = True
+)
 
 # Update this line in your code
 ca = certifi.where()
@@ -58,6 +74,19 @@ async def startup_db_client():
     except Exception as e:
         print(f"❌ Connection failed: {e}")
 
+async def start_cleanup_worker():
+    # Start the background task to watch for 'Death Clock' events
+    asyncio.create_task(watch_for_expirations())
+
+async def watch_for_expirations():
+    """Watches MongoDB for deleted documents to trigger Cloudinary wipe."""
+    async with shares_collection.watch([{"$match": {"operationType": "delete"}}]) as stream:
+        async for change in stream:
+            # Note: You'll need to store the public_id in a separate 'pending_delete' 
+            # collection or use MongoDB Change Streams with 'fullDocumentBeforeChange' 
+            # enabled to get the Cloudinary ID after the record is gone.
+            print("🚀 [THE WIPE] TTL Expired. Syncing cloud deletion...")
+
 
 
 @app.post("/upload")
@@ -77,54 +106,86 @@ async def process_anonymous_upload(
 
     # 3. Read the file (In Phase 3, Member C's AI will scan file_bytes here)
     file_bytes = await file.read()
+    base64_image = base64.b64encode(file_bytes).decode('utf-8')
+
+    # 3. AI Moderation Check (Omni-Moderation-Latest)
+    # We use to_thread so the AI check doesn't freeze the backend
+    try:
+        response = await asyncio.to_thread(
+            ai_client.moderations.create,
+            model="omni-moderation-latest",
+            input=[
+                {"type": "text", "text": custom_slug},
+                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+            ]
+        )
+        
+        print("\n🤖 --- AI MODERATION RESPONSE --- 🤖")
+        print(response.results[0].model_dump_json(indent=2))
+        # 4. "The Wipe" - Block and ignore if flagged
+        if response.results[0].flagged:
+            raise HTTPException(status_code=400, detail="AI Safety Check: Content violates policy.")
+            
+    except Exception as e:
+        if isinstance(e, HTTPException): raise e
+        print(f"Moderation Error: {e}")
+        # Optional: Decide if you want to fail-safe or fail-closed here
+
+    try:
+        upload_result = await asyncio.to_thread(
+            cloudinary.uploader.upload,
+            file_bytes,
+            public_id=custom_slug,
+            folder="nologin_vault",
+            overwrite=True,
+            resource_type="auto"
+        )
+        cloudinary_url = upload_result.get("secure_url")
+        print(f"✅ Cloudinary Confirmed: {upload_result['public_id']} has been stored.")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Cloudinary Upload Failed: {e}")
+
+    # 5. Success! Calculate 'Death Clock' and Save
+    expire_date = datetime.utcnow() + timedelta(hours=hours)
+    
 
     # 4. Create the Database Document
     new_share = {
         "slug": custom_slug,
         "filename": file.filename,
-        "size": len(file_bytes),
-        "expireAt": expire_date,  # MongoDB watches this field
+        "cloudinary_url": cloudinary_url,
+        "public_id": upload_result["public_id"], # Needed for "The Wipe"
+        "expireAt": expire_date,
         "created_at": datetime.utcnow(),
-        "is_safe": True # Placeholder for Member C's AI result
     }
 
     # 5. Insert into MongoDB
     await shares_collection.insert_one(new_share)
 
-    # Format: slug_original_name
-    file_path = os.path.join(UPLOAD_DIR, f"{custom_slug}_{file.filename}")
+    
 
-    # Save the file to your hard drive asynchronously (use file_bytes already read above)
-    async with aiofiles.open(file_path, 'wb') as out_file:
-        await out_file.write(file_bytes)
-
-    # Update your MongoDB document to include the file_path
-    # This helps you find the file later when someone visits the URL
-    await shares_collection.update_one(
-        {"slug": custom_slug},
-        {"$set": {"local_path": file_path}}
-    )
-
-    return {
-        "status": "File Saved Locally & Logged in MongoDB",
-        "share_url": f"nologin.in/{custom_slug}",
-        "will_expire_at": expire_date.strftime("%Y-%m-%d %H:%M:%S UTC")
-    }
+    return {"share_url": f"nologin.in/{custom_slug}", "expiry": expire_date}
 
 @app.get("/download/{slug}")
 async def download_file(slug: str):
-    file_record = await db["shares"].find_one({"slug": slug})
+    # 1. Find the record in the 'shares' collection
+    file_record = await shares_collection.find_one({"slug": slug})
 
     if not file_record:
-        raise HTTPException(status_code=404, detail="File not found")
+        raise HTTPException(status_code=404, detail="Link expired or never existed.")
 
-    file_path = file_record["local_path"]
+    # 2. Get the Cloudinary URL we saved during upload
+    cloudinary_url = file_record.get("cloudinary_url")
 
-    if not os.path.exists(file_path):
-        raise HTTPException(status_code=404, detail="File missing on server")
+    if not cloudinary_url:
+        raise HTTPException(status_code=404, detail="File path missing in database.")
 
-    return FileResponse(
-        path=file_path,
-        media_type="application/octet-stream",
-        filename=file_record["filename"],
-    )
+    # 3. Redirect the user to Cloudinary for the actual download
+    # 'resource_type="auto"' in upload ensures Cloudinary handles all file types
+    return RedirectResponse(url=cloudinary_url)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    # host 0.0.0.0 allows connections from other devices on your network (e.g. phone, Loveable preview)
+    uvicorn.run(app, host="0.0.0.0", port=8000)

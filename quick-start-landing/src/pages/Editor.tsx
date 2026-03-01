@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import { Copy, Upload, Save, Lock } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Download, FileIcon, ShieldCheck } from "lucide-react";
+import { getApiBaseUrl } from "@/lib/api";
 
 const Editor = () => {
   const { domain } = useParams(); // This gets the 'slug' from the URL
@@ -10,7 +11,7 @@ const Editor = () => {
   const handleDownload = () => {
     // This sends the user directly to the FastAPI download route
     // It will trigger a browser download for the file stored on your SSD
-    window.location.href = `http://127.0.0.1:8000/download/${domain}`;
+    window.location.href = `${getApiBaseUrl()}/download/${domain}`;
   };
 
   return (
