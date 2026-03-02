@@ -18,6 +18,9 @@ from cloudinary.utils import cloudinary_url
 from fastapi.responses import RedirectResponse
 from fastapi.middleware.cors import CORSMiddleware
 
+
+app = FastAPI()
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -50,7 +53,7 @@ ca = certifi.where()
 client = AsyncIOMotorClient(uri, tlsCAFile=ca)
 db = client["nologin_db"]
 
-app = FastAPI()
+
 
 
 app.add_middleware(
