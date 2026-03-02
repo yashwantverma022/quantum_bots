@@ -66,7 +66,8 @@ const Index = () => {
 
     const apiUrl = `${getApiBaseUrl()}/upload`;
     try {
-      await axios.post(apiUrl, formData);
+      // 90s timeout for Render free tier cold start (can take 30-60s)
+      await axios.post(apiUrl, formData, { timeout: 90000 });
       toast.success("Dropp'd successfully!");
       setFileUploaded(true);
     } catch (err) {

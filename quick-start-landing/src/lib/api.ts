@@ -4,7 +4,7 @@
  * - Otherwise uses hostname:8000 for local/same-network
  * Note: .env is gitignored - Render builds need VITE_API_URL set in service Environment
  */
-const BACKEND_URL = "https://quantum-bots.onrender.com";
+const BACKEND_URL = "https://quantum-bots-backend.onrender.com";
 
 export const getApiBaseUrl = (): string => {
   const envUrl = import.meta.env.VITE_API_URL;

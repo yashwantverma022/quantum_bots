@@ -74,6 +74,10 @@ client = AsyncIOMotorClient(uri, tlsCAFile=certifi.where())
 db = client.nologin_db
 shares_collection = db.shares
 
+@app.get("/")
+async def health():
+    return {"status": "ok", "service": "quantum-bots-backend"}
+
 # 2. Connection Check on Startup
 @app.on_event("startup")
 async def startup_db_client():
@@ -201,5 +205,6 @@ async def download_file(slug: str):
 
 if __name__ == "__main__":
     import uvicorn
-    # host 0.0.0.0 allows connections from other devices on your network (e.g. phone, Loveable preview)
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Render sets PORT env (e.g. 10000); use 8000 for local dev
+    port = int(os.environ.get("PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)
