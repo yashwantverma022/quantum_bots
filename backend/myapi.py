@@ -7,10 +7,13 @@ import certifi
 from datetime import datetime, timedelta
 import aiofiles
 import os
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
 import base64
-from openai import OpenAI
+# from openai import OpenAI
 import shutil
 import cloudinary
 import cloudinary.uploader
@@ -21,21 +24,33 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI()
 
+cors_origins_env = os.environ.get("CORS_ORIGINS", "*").strip()
+cors_origins = ["*"] if cors_origins_env == "*" else [o.strip() for o in cors_origins_env.split(",") if o.strip()]
+
+# We don't rely on cookies for auth, so keep allow_credentials=False.
+# This avoids the invalid combination allow_origins=["*"] + allow_credentials=True (browsers block it).
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://localhost:5173",          # Local testing
-        "https://quantum-bots-quickstart.onrender.com" # YOUR LIVE FRONTEND URL
-    ],
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 
-uri = "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.9ta61s4.mongodb.net/?retryWrites=true&w=majority"
+# MongoDB: set MONGODB_URI in .env (or Render env) with your real password from Atlas.
+# Get it from Atlas: Cluster → Connect → Connect your application → copy the URI, then replace <password>.
+uri = os.environ.get(
+    "MONGODB_URI",
+    "mongodb+srv://kaneki_ken:kaneki_ken123@cluster0.2vsl1gy.mongodb.net/?retryWrites=true&w=majority",
+)
+if not uri or "REPLACE_WITH_YOUR_PASSWORD" in uri or "<password>" in uri or "<db_password>" in uri:
+    raise ValueError(
+        "Set MONGODB_URI in backend/.env with your MongoDB connection string. "
+        "Atlas → Connect → Drivers → copy URI and replace <password> with your database user password."
+    )
 
-ai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# ai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 UPLOAD_DIR = os.path.join(BASE_DIR, "uploads")
 
@@ -51,28 +66,9 @@ cloudinary.config(
 # Update this line in your code
 ca = certifi.where()
 client = AsyncIOMotorClient(uri, tlsCAFile=ca)
-db = client["nologin_db"]
-
-
-
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # For MVP, allow everything. For production, use your frontend URL
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-UPLOAD_DIR = "stored_files"
-os.makedirs(UPLOAD_DIR, exist_ok=True)
-
-# 1. Setup Async MongoDB Connection
-# Use the same URI, just with the Async client
-
-client = AsyncIOMotorClient(uri, tlsCAFile=certifi.where())
-db = client.nologin_db
-shares_collection = db.shares
+# New cluster: database no_login, collection no_login
+db = client["no_login"]
+shares_collection = db["no_login"]
 
 @app.get("/")
 async def health():
@@ -124,30 +120,25 @@ async def process_anonymous_upload(
 
     # 3. Read the file (In Phase 3, Member C's AI will scan file_bytes here)
     file_bytes = await file.read()
-    base64_image = base64.b64encode(file_bytes).decode('utf-8')
+    # base64_image = base64.b64encode(file_bytes).decode('utf-8')
 
-    # 3. AI Moderation Check (Omni-Moderation-Latest)
-    # We use to_thread so the AI check doesn't freeze the backend
-    try:
-        response = await asyncio.to_thread(
-            ai_client.moderations.create,
-            model="omni-moderation-latest",
-            input=[
-                {"type": "text", "text": custom_slug},
-                {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
-            ]
-        )
-        
-        print("\n🤖 --- AI MODERATION RESPONSE --- 🤖")
-        print(response.results[0].model_dump_json(indent=2))
-        # 4. "The Wipe" - Block and ignore if flagged
-        if response.results[0].flagged:
-            raise HTTPException(status_code=400, detail="AI Safety Check: Content violates policy.")
-            
-    except Exception as e:
-        if isinstance(e, HTTPException): raise e
-        print(f"Moderation Error: {e}")
-        # Optional: Decide if you want to fail-safe or fail-closed here
+    # 3. AI Moderation Check (Omni-Moderation-Latest) - COMMENTED OUT (not using OpenAI)
+    # try:
+    #     response = await asyncio.to_thread(
+    #         ai_client.moderations.create,
+    #         model="omni-moderation-latest",
+    #         input=[
+    #             {"type": "text", "text": custom_slug},
+    #             {"type": "image_url", "image_url": {"url": f"data:image/jpeg;base64,{base64_image}"}}
+    #         ]
+    #     )
+    #     print("\n🤖 --- AI MODERATION RESPONSE --- 🤖")
+    #     print(response.results[0].model_dump_json(indent=2))
+    #     if response.results[0].flagged:
+    #         raise HTTPException(status_code=400, detail="AI Safety Check: Content violates policy.")
+    # except Exception as e:
+    #     if isinstance(e, HTTPException): raise e
+    #     print(f"Moderation Error: {e}")
 
     try:
         upload_result = await asyncio.to_thread(
